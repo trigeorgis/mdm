@@ -45,7 +45,7 @@
    },
    "outputs": [],
    "source": [
-    "MDM_MODEL_PATH = 'mdm_frozen.pb'\n",
+    "MDM_MODEL_PATH = 'theano_mdm.pb'\n",
     "\n",
     "with open(MDM_MODEL_PATH, 'rb') as f:\n",
     "    graph_def = tf.GraphDef.FromString(f.read())\n",
@@ -71,7 +71,7 @@
    },
    "outputs": [],
    "source": [
-    "im = mio.import_image('/Users/gtrigeo/db/lfpw/trainset/image_0012.png')"
+    "im = mio.import_image('image_0012.png')"
    ]
   },
   {
