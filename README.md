@@ -24,7 +24,7 @@ in various ways throughout the implementation.
 
 Please look at the installation instructions at:
 
-http://www.menpo.org/installation/
+  http://www.menpo.org/installation/
 
 # Pretrained models
 
