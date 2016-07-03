@@ -3,7 +3,9 @@
 A Tensorflow implementation of the Mnemonic Descent Method.
 
     Mnemonic Descent Method: A recurrent process applied for end-to-end face alignment
-    G. Trigeorgis, P. Snape, M. A. Nicolaou, E. Antonakos, S. Zafeiriou. Proceedings of IEEE International Conference on Computer Vision & Pattern Recognition (CVPR'16). Las Vegas, NV, USA, June 2016.
+    G. Trigeorgis, P. Snape, M. A. Nicolaou, E. Antonakos, S. Zafeiriou.
+    Proceedings of IEEE International Conference on Computer Vision & Pattern Recognition (CVPR'16).
+    Las Vegas, NV, USA, June 2016.
 
 # Installation Instructions
 
