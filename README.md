@@ -2,6 +2,11 @@
 
 A Tensorflow implementation of the Mnemonic Descent Method.
 
+    Mnemonic Descent Method: A recurrent process applied for end-to-end face alignment
+    G. Trigeorgis, P. Snape, M. A. Nicolaou, E. Antonakos, S. Zafeiriou.
+    Proceedings of IEEE International Conference on Computer Vision & Pattern Recognition (CVPR'16).
+    Las Vegas, NV, USA, June 2016.
+
 # Installation Instructions
 
 ## TensorFlow
@@ -15,7 +20,7 @@ but use
   git clone git@github.com:trigeorgis/tensorflow.git
 
 as the TensorFlow repo. This is a fork of Tensorflow (#ff75787c) but it includes some
-C++ specific kernels, such as for the extraction of patches.
+extra C++ ops, such as for the extraction of patches around the landmarks.
 
 ## Menpo
 
