@@ -72,6 +72,7 @@ def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(24, 24),
   for step in range(num_iterations):
       with tf.device('/cpu:0'):
           patches = tf.image.extract_patches(images, tf.constant(patch_shape), inits+dx)
+      patches = tf.reshape(patches, (batch_size * num_patches, patch_shape[0], patch_shape[1], num_channels))
 
       endpoints['patches'] = patches
       with tf.variable_scope('convnet', reuse=step>0):

@@ -14,7 +14,7 @@ import tensorflow as tf
 import utils
 
 
-def build_reference_shape(paths, diagonal=150):
+def build_reference_shape(paths, diagonal=200):
     """Builds the reference shape.
 
     Args:
@@ -74,8 +74,8 @@ def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
     return align_shape_with_bounding_box(reference_shape, bb).points
 
 
-def load_image(path, reference_shape, is_training=False, group=None):
-    """Load an annotated image off memory.
+def load_image(path, reference_shape, is_training=False, group='PTS'):
+    """Load an annotated image.
 
     In the directory of the provided image file, there
     should exist a landmark file (.pts) with the same
@@ -92,15 +92,23 @@ def load_image(path, reference_shape, is_training=False, group=None):
       gt_truth: the ground truth landmarks, a numpy array [68, 2].
     """
     im = mio.import_image(path)
-    im = im.crop_to_landmarks_proportion(0.3)
-    reference_shape = PointCloud(reference_shape)
+    bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
+    if 'set' not in str(bb_root):
+        bb_root = im.path.parent.relative_to(im.path.parent.parent)
 
-    bb = im.landmarks[group].lms.bounding_box()
+    im.landmarks['bb'] = mio.import_landmark_file(str(Path('bbs') / bb_root / (im.path.stem + '.pts')))
+
+    im = im.crop_to_landmarks_proportion(0.3, group='bb')
+    reference_shape = PointCloud(reference_shape)
+    if np.random.rand() < .5:
+        im = utils.mirror_image(im)
+
+    bb = im.landmarks['bb'].lms.bounding_box()
 
     im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape, bb)
     im = im.rescale_to_pointcloud(reference_shape, group='__initial')
 
-    lms = im.landmarks['PTS'].lms
+    lms = im.landmarks[group].lms
     initial = im.landmarks['__initial'].lms
 
     # if the image is greyscale then convert to rgb.

@@ -27,12 +27,20 @@ mirrored_parts_68 = np.hstack([
 ])
 
 
+def mirror_image(im, group='PTS'):
+    im = im.copy()
+    lms = im.landmarks[group].lms
+    im = im.mirror()
+    im.landmarks[group] = lms.from_vector(((
+        abs(np.array([0, im.shape[1]]) - lms.as_vector().reshape(-1, 2)))[mirrored_parts_68]))
+    return im
+
 
 def line(image, x0, y0, x1, y1, color):
     steep = False
     if x0 < 0 or x0 >= 400 or x1 < 0 or x1 >= 400 or y0 < 0 or y0 >= 400 or y1 < 0 or y1 >= 400:
         return
-    
+
     if abs(x0 - x1) < abs(y0 - y1):
         x0, y0 = y0, x0
         x1, y1 = y1, x1
