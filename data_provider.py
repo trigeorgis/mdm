@@ -28,7 +28,7 @@ def build_reference_shape(paths, diagonal=200):
         path = Path(path).parent.as_posix()
         landmarks += [group.lms
             for group in mio.import_landmark_files(
-                path, verbose=True)]
+                path, verbose=True) if group.lms.n_points == 68]
 
     return compute_reference_shape(landmarks, diagonal=diagonal).points.astype(np.float32)
 

@@ -15,15 +15,17 @@ import os.path
 import tensorflow as tf
 import time
 import utils
+import slim
+import menpo.io as mio
 
 # Do not use a gui toolkit for matlotlib.
 matplotlib.use('Agg')
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('eval_dir', 'checkpoint/eval',
+tf.app.flags.DEFINE_string('eval_dir', 'ckpt/eval',
                            """Directory where to write event logs.""")
-tf.app.flags.DEFINE_string('checkpoint_dir', 'checkpoint/train',
+tf.app.flags.DEFINE_string('checkpoint_dir', 'ckpt/train/',
                            """Directory where to read model checkpoints.""")
 
 # Flags governing the frequency of the eval.
@@ -150,8 +152,11 @@ def evaluate(dataset_path):
   """Evaluate model on Dataset for a number of steps."""
   with tf.Graph().as_default(), tf.device('/cpu:0'):
     # Get images and labels from the dataset.
+    reference_shape = mio.import_pickle(
+            FLAGS.checkpoint_dir + '/reference_shape.pkl')
     images, gt_truth, inits = data_provider.batch_inputs(
-            [dataset_path], FLAGS.batch_size, is_training=False)
+            [dataset_path], reference_shape,
+            batch_size=FLAGS.batch_size, is_training=False)
     print('Loading model...')
     # Build a Graph that computes the logits predictions from the
     # inference model.

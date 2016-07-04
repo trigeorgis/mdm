@@ -8,6 +8,7 @@ import slim
 import tensorflow as tf
 import time
 import utils
+import menpo.io as mio
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_float('initial_learning_rate',0.0007,
@@ -49,8 +50,10 @@ def train(scope=''):
 
     train_dirs = FLAGS.datasets.split(':')
 
+    _shape = data_provider.build_reference_shape(train_dirs)
+    mio.export_pickle(_shape, FLAGS.train_dir + '/reference_shape.pkl')
     reference_shape = tf.constant(
-            data_provider.build_reference_shape(train_dirs),
+            _shape,
             name='reference_shape')
 
     # Calculate the learning rate schedule.
