@@ -37,6 +37,8 @@ extra C++ ops, such as for the extraction of patches around the landmarks.
 A pretrained model on 300W train set can be found at: https://www.doc.ic.ac.uk/~gt108/theano_mdm.pb
 
 # Training a model
+Currently the TensorFlow implementation does not contain the same data augmnetation steps
+as we did in the paper, but this will be updated shortly.
 
     # Activate the conda environment where tf/menpo resides.
     source activate menpo
