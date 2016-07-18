@@ -21,17 +21,12 @@ def error_300w(images, dx, test_initial_shapes, threshold=0.05):
     norms = np.array(error_per_image)
     return (norms < (threshold)).mean() * 100, np.mean(norms) * 100
 
-def align_reference_shape(im, bb):
-    import joblib
-    reference_shape = joblib.load('reference_shape')
-    mean_shape = tf.constant(reference_shape.points, tf.float32, name='reference_shape')
-    mean_bb = tf.constant(reference_shape.bounding_box().points,  tf.float32, name='reference_bb')
-
+def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
 
-    ratio = norm(bb) / norm(mean_bb)
-    align_mean_shape = (mean_shape - tf.reduce_mean(mean_bb, 0)) * ratio + tf.reduce_mean(bb, 0)
+    ratio = norm(bb) / norm(reference_shape_bb)
+    align_mean_shape = (reference_shape - tf.reduce_mean(reference_shape_bb, 0)) * ratio + tf.reduce_mean(bb, 0)
     new_size = tf.to_int32(tf.to_float(tf.shape(im)[:2]) / ratio)
     return tf.image.resize_bilinear(tf.expand_dims(im, 0), new_size)[0, :, :, :], align_mean_shape / ratio, ratio
 
