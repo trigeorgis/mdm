@@ -11,189 +11,220 @@ import utils
 import menpo.io as mio
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_float('initial_learning_rate',0.0007,
+tf.app.flags.DEFINE_float('initial_learning_rate', 0.0007,
                           """Initial learning rate.""")
 tf.app.flags.DEFINE_float('num_epochs_per_decay', 5.0,
                           """Epochs after which learning rate decays.""")
 tf.app.flags.DEFINE_float('learning_rate_decay_factor', 0.97,
                           """Learning rate decay factor.""")
-tf.app.flags.DEFINE_integer('batch_size', 40,
-                            """The batch size to use.""")
+tf.app.flags.DEFINE_integer('batch_size', 40, """The batch size to use.""")
 tf.app.flags.DEFINE_integer('num_preprocess_threads', 4,
                             """How many preprocess threads to use.""")
 tf.app.flags.DEFINE_string('train_dir', 'ckpt/train',
                            """Directory where to write event logs """
                            """and checkpoint.""")
-tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path',  '',
+tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """If specified, restore this pretrained model """
                            """before beginning any training.""")
 tf.app.flags.DEFINE_integer('max_steps', 50000,
                             """Number of batches to run.""")
-tf.app.flags.DEFINE_string('datasets',
-                           ':'.join(('databases/lfpw/trainset/*.png',
-                               'databases/afw/*.jpg',
-                               'databases/helen/trainset/*.jpg')
-                           ),
+tf.app.flags.DEFINE_string('datasets', ':'.join(
+    ('databases/lfpw/trainset/*.png', 'databases/afw/*.jpg',
+     'databases/helen/trainset/*.jpg')),
                            """Directory where to write event logs """
                            """and checkpoint.""")
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999
 
+
 def train(scope=''):
-  """Train on dataset for a number of steps."""
-  with tf.Graph().as_default(), tf.device('/cpu:0'):
-    # Create a variable to count the number of train() calls. This equals the
-    # number of batches processed * FLAGS.num_gpus.
-    global_step = tf.get_variable(
-        'global_step', [],
-        initializer=tf.constant_initializer(0), trainable=False)
+    """Train on dataset for a number of steps."""
+    with tf.Graph().as_default(), tf.device('/cpu:0'):
+        # Create a variable to count the number of train() calls. This equals the
+        # number of batches processed * FLAGS.num_gpus.
+        global_step = tf.get_variable('global_step', [],
+                                      initializer=tf.constant_initializer(0),
+                                      trainable=False)
 
-    train_dirs = FLAGS.datasets.split(':')
+        train_dirs = FLAGS.datasets.split(':')
 
-    _shape = data_provider.build_reference_shape(train_dirs)
-    mio.export_pickle(_shape, FLAGS.train_dir + '/reference_shape.pkl')
-    reference_shape = tf.constant(
-            _shape,
-            name='reference_shape')
+        # Calculate the learning rate schedule.
+        num_batches_per_epoch = 100
+        num_epochs_per_decay = 5
+        decay_steps = int(num_batches_per_epoch * num_epochs_per_decay)
 
-    # Calculate the learning rate schedule.
-    num_batches_per_epoch = 100
-    num_epochs_per_decay = 5
-    decay_steps = int(num_batches_per_epoch * num_epochs_per_decay)
+        # Decay the learning rate exponentially based on the number of steps.
+        lr = tf.train.exponential_decay(FLAGS.initial_learning_rate,
+                                        global_step,
+                                        decay_steps,
+                                        FLAGS.learning_rate_decay_factor,
+                                        staircase=True)
 
-    # Decay the learning rate exponentially based on the number of steps.
-    lr = tf.train.exponential_decay(FLAGS.initial_learning_rate,
-                                    global_step,
-                                    decay_steps,
-                                    FLAGS.learning_rate_decay_factor,
-                                    staircase=True)
+        # Create an optimizer that performs gradient descent.
+        opt = tf.train.AdamOptimizer(lr)
 
-    # Create an optimizer that performs gradient descent.
-    opt = tf.train.AdamOptimizer(lr)
+        # Override the number of preprocessing threads to account for the increased
+        # number of GPU towers.
+        num_preprocess_threads = FLAGS.num_preprocess_threads
 
-    # Override the number of preprocessing threads to account for the increased
-    # number of GPU towers.
-    num_preprocess_threads = FLAGS.num_preprocess_threads
+        _images, _shapes, _reference_shape, pca_model = \
+            data_provider.load_images(train_dirs)
 
-    images, lms, inits = data_provider.batch_inputs(train_dirs,
-            reference_shape, FLAGS.batch_size, is_training=True)
+        reference_shape = tf.constant(_reference_shape,
+                                      dtype=tf.float32,
+                                      name='reference_shape')
 
-    with tf.device('/gpu:0'):
-        # Retain the summaries from the final tower.
-        summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
-        predictions, dxs, _ = mdm_model.model(images, inits)
+        queue = tf.PaddingFIFOQueue(
+            len(_images), [tf.float32, tf.float32],
+            shapes=((None, None, 3), _shapes[0].points.shape),
+            name='data_loader')
 
-        total_loss = 0
+        # Start running operations on the Graph. allow_soft_placement must be
+        # set True to build towers on GPU, as some of the ops do not have GPU
+        # implementations.
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
-        for i, dx in enumerate(dxs):
-            norm_error = mdm_model.normalized_rmse(dx + inits, lms)
-            tf.histogram_summary('errors', norm_error)
-            loss = tf.reduce_mean(norm_error) 
-            total_loss += loss
-            summaries.append(tf.scalar_summary('losses/step_{}'.format(i), loss))
+        # Inserts images in the queue.
+        for im, sh in zip(_images, _shapes):
+            sess.run(queue.enqueue([im, sh.points]))
 
-        # Calculate the gradients for the batch of data
-        grads = opt.compute_gradients(total_loss)
+        print('Padding dataset...')
+        images, shapes = sess.run(queue.dequeue_many(len(_images)))
+        print('Padded dataset.')
 
-    summaries.append(tf.scalar_summary('losses/total', total_loss))
-    pred_images, = tf.py_func(utils.batch_draw_landmarks, [images, predictions], [tf.float32])
-    gt_images, = tf.py_func(utils.batch_draw_landmarks, [images, lms], [tf.float32])
+        image, shape = tf.train.slice_input_producer([images, shapes],
+                                                     shuffle=True,
+                                                     capacity=len(_images))
 
-    summary = tf.image_summary('images', tf.concat(2, [gt_images, pred_images]), max_images=5)
-    summaries.append(tf.histogram_summary('dx', predictions - inits))
+        initial_shape = data_provider.random_shape(shape, reference_shape,
+                                                   pca_model)
 
-    summaries.append(summary)
+        images, lms, inits = tf.train.batch([image, shape, initial_shape],
+                                            FLAGS.batch_size,
+                                            dynamic_pad=True,
+                                            capacity=5000,
+                                            num_threads=num_preprocess_threads,
+                                            name='batch')
+        print('Defining model...')
+        with tf.device('/gpu:0'):
+            # Retain the summaries from the final tower.
+            summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
+            predictions, dxs, _ = mdm_model.model(images, inits)
 
-    batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION,
-                                        scope)
+            total_loss = 0
 
+            for i, dx in enumerate(dxs):
+                norm_error = mdm_model.normalized_rmse(dx + inits, lms)
+                tf.histogram_summary('errors', norm_error)
+                loss = tf.reduce_mean(norm_error)
+                total_loss += loss
+                summaries.append(tf.scalar_summary('losses/step_{}'.format(i),
+                                                   loss))
 
-    # Add a summary to track the learning rate.
-    summaries.append(tf.scalar_summary('learning_rate', lr))
+            # Calculate the gradients for the batch of data
+            grads = opt.compute_gradients(total_loss)
 
-    # Add histograms for gradients.
-    for grad, var in grads:
-      if grad is not None:
-        summaries.append(
-            tf.histogram_summary(var.op.name + '/gradients', grad))
+        summaries.append(tf.scalar_summary('losses/total', total_loss))
+        pred_images, = tf.py_func(utils.batch_draw_landmarks,
+                                  [images, predictions], [tf.float32])
+        gt_images, = tf.py_func(utils.batch_draw_landmarks, [images, lms],
+                                [tf.float32])
 
-    # Apply the gradients to adjust the shared variables.
-    apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+        summary = tf.image_summary('images',
+                                   tf.concat(2, [gt_images, pred_images]),
+                                   max_images=5)
+        summaries.append(tf.histogram_summary('dx', predictions - inits))
 
-    # Add histograms for trainable variables.
-    for var in tf.trainable_variables():
-      summaries.append(tf.histogram_summary(var.op.name, var))
+        summaries.append(summary)
 
-    # Track the moving averages of all trainable variables.
-    # Note that we maintain a "double-average" of the BatchNormalization
-    # global statistics. This is more complicated then need be but we employ
-    # this for backward-compatibility with our previous models.
-    variable_averages = tf.train.ExponentialMovingAverage(
-        MOVING_AVERAGE_DECAY, global_step)
+        batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION,
+                                              scope)
 
-    # Another possibility is to use tf.slim.get_variables().
-    variables_to_average = (tf.trainable_variables() +
-                            tf.moving_average_variables())
-    variables_averages_op = variable_averages.apply(variables_to_average)
+        # Add a summary to track the learning rate.
+        summaries.append(tf.scalar_summary('learning_rate', lr))
 
-    # Group all updates to into a single train op.
-    # NOTE: Currently we are not using batchnorm in MDM.
-    batchnorm_updates_op = tf.group(*batchnorm_updates)
-    train_op = tf.group(apply_gradient_op, variables_averages_op,
-                        batchnorm_updates_op)
+        # Add histograms for gradients.
+        for grad, var in grads:
+            if grad is not None:
+                summaries.append(tf.histogram_summary(var.op.name +
+                                                      '/gradients', grad))
 
-    # Create a saver.
-    saver = tf.train.Saver(tf.all_variables())
+        # Apply the gradients to adjust the shared variables.
+        apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
 
-    # Build the summary operation from the last tower summaries.
-    summary_op = tf.merge_summary(summaries)
+        # Add histograms for trainable variables.
+        for var in tf.trainable_variables():
+            summaries.append(tf.histogram_summary(var.op.name, var))
 
-    # Build an initialization operation to run below.
-    init = tf.initialize_all_variables()
+        # Track the moving averages of all trainable variables.
+        # Note that we maintain a "double-average" of the BatchNormalization
+        # global statistics. This is more complicated then need be but we employ
+        # this for backward-compatibility with our previous models.
+        variable_averages = tf.train.ExponentialMovingAverage(
+            MOVING_AVERAGE_DECAY, global_step)
 
-    # Start running operations on the Graph. allow_soft_placement must be set to
-    # True to build towers on GPU, as some of the ops do not have GPU
-    # implementations.
-    sess = tf.Session(config=tf.ConfigProto(
-        allow_soft_placement=True))
-    sess.run(init)
+        # Another possibility is to use tf.slim.get_variables().
+        variables_to_average = (
+            tf.trainable_variables() + tf.moving_average_variables())
+        variables_averages_op = variable_averages.apply(variables_to_average)
 
-    if FLAGS.pretrained_model_checkpoint_path:
-      assert tf.gfile.Exists(FLAGS.pretrained_model_checkpoint_path)
-      variables_to_restore = tf.get_collection(
-          slim.variables.VARIABLES_TO_RESTORE)
-      restorer = tf.train.Saver(variables_to_restore)
-      restorer.restore(sess, FLAGS.pretrained_model_checkpoint_path)
-      print('%s: Pre-trained model restored from %s' %
-            (datetime.now(), FLAGS.pretrained_model_checkpoint_path))
+        # Group all updates to into a single train op.
+        # NOTE: Currently we are not using batchnorm in MDM.
+        batchnorm_updates_op = tf.group(*batchnorm_updates)
+        train_op = tf.group(apply_gradient_op, variables_averages_op,
+                            batchnorm_updates_op)
 
-    # Start the queue runners.
-    tf.train.start_queue_runners(sess=sess)
+        # Create a saver.
+        saver = tf.train.Saver(tf.all_variables())
 
-    summary_writer = tf.train.SummaryWriter(FLAGS.train_dir)
+        # Build the summary operation from the last tower summaries.
+        summary_op = tf.merge_summary(summaries)
 
-    for step in xrange(FLAGS.max_steps):
-      start_time = time.time()
-      _, loss_value = sess.run([train_op, total_loss])
-      duration = time.time() - start_time
+        # Build an initialization operation to run below.
+        init = tf.initialize_all_variables()
+        print('Initializing variables...')
+        sess.run(init)
+        print('Initialized variables.')
 
-      assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+        if FLAGS.pretrained_model_checkpoint_path:
+            assert tf.gfile.Exists(FLAGS.pretrained_model_checkpoint_path)
+            variables_to_restore = tf.get_collection(
+                slim.variables.VARIABLES_TO_RESTORE)
+            restorer = tf.train.Saver(variables_to_restore)
+            restorer.restore(sess, FLAGS.pretrained_model_checkpoint_path)
+            print('%s: Pre-trained model restored from %s' %
+                  (datetime.now(), FLAGS.pretrained_model_checkpoint_path))
 
-      if step % 10 == 0:
-        examples_per_sec = FLAGS.batch_size / float(duration)
-        format_str = ('%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
-                      'sec/batch)')
-        print(format_str % (datetime.now(), step, loss_value,
-                            examples_per_sec, duration))
+        # Start the queue runners.
+        tf.train.start_queue_runners(sess=sess)
 
-      if step % 10 == 0:
-        summary_str = sess.run(summary_op)
-        summary_writer.add_summary(summary_str, step)
+        summary_writer = tf.train.SummaryWriter(FLAGS.train_dir)
 
-      # Save the model checkpoint periodically.
-      if step % 50 == 0 or (step + 1) == FLAGS.max_steps:
-        checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
-        saver.save(sess, checkpoint_path, global_step=step)
+        print('Starting training...')
+        for step in xrange(FLAGS.max_steps):
+            start_time = time.time()
+            _, loss_value = sess.run([train_op, total_loss])
+            duration = time.time() - start_time
+
+            assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+
+            if step % 10 == 0:
+                examples_per_sec = FLAGS.batch_size / float(duration)
+                format_str = (
+                    '%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
+                    'sec/batch)')
+                print(format_str % (datetime.now(), step, loss_value,
+                                    examples_per_sec, duration))
+
+            if step % 10 == 0:
+                summary_str = sess.run(summary_op)
+                summary_writer.add_summary(summary_str, step)
+
+            # Save the model checkpoint periodically.
+            if step % 50 == 0 or (step + 1) == FLAGS.max_steps:
+                checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+                saver.save(sess, checkpoint_path, global_step=step)
+
 
 if __name__ == '__main__':
     train()
