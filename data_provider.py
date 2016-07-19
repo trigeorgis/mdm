@@ -135,7 +135,7 @@ def load_images(paths, group=None, verbose=True):
       reference_shape: a numpy array [num_landmarks, 2].
       shape_gen: PCAModel, a shape generator.
     """
-    pixels = []
+    images = []
     shapes = []
     bbs = []
 
@@ -156,13 +156,21 @@ def load_images(paths, group=None, verbose=True):
             im = im.crop_to_landmarks_proportion(0.3, group='bb')
             im = im.rescale_to_pointcloud(reference_shape, group=group)
             im = grey_to_rgb(im)
-            pixels.append(im.pixels.transpose(1, 2, 0))
+            images.append(im.pixels.transpose(1, 2, 0))
             shapes.append(im.landmarks[group].lms)
             bbs.append(im.landmarks['bb'].lms)
 
     pca_model = detect.create_generator(shapes, bbs)
 
-    return pixels, shapes, reference_shape.points, pca_model
+    # Pad images to max length
+    max_shape = np.max([im.shape for im in images], axis=0)
+    max_shape = [len(images)] + list(max_shape)
+    padded_images = np.random.rand(*max_shape).astype(np.float32)
+
+    for i, im in enumerate(images):
+        padded_images[map(slice, (i, ) + im.shape)] = im
+
+    return padded_images, shapes, reference_shape.points, pca_model
 
 
 def load_image(path, reference_shape, is_training=False, group='PTS'):

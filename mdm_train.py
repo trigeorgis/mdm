@@ -73,36 +73,29 @@ def train(scope=''):
         reference_shape = tf.constant(_reference_shape,
                                       dtype=tf.float32,
                                       name='reference_shape')
+        print(_images.shape)
+        image_shape = _images[0].shape
+        lms_shape = _shapes[0].points.shape
 
-        queue = tf.PaddingFIFOQueue(
-            len(_images), [tf.float32, tf.float32],
-            shapes=((None, None, 3), _shapes[0].points.shape),
-            name='data_loader')
+        def get_random_sample():
+            idx = np.random.randint(low=0, high=len(_images))
+            return _images[idx].astype(np.float32), _shapes[0].points.astype(
+                np.float32)
 
-        # Start running operations on the Graph. allow_soft_placement must be
-        # set to True to build towers on GPU, as some of the ops do not have GPU
-        # implementations.
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
-
-        # Inserts images in the queue.
-        for im, sh in zip(_images, _shapes):
-            sess.run(queue.enqueue([im, sh.points]))
-
-        print('Padding dataset...')
-        images, shapes = sess.run(queue.dequeue_many(len(_images)))
-        print('Padded dataset.')
-
-        image, shape = tf.train.slice_input_producer([images, shapes],
-                                                     shuffle=True,
-                                                     capacity=len(_images))
+        image, shape = tf.py_func(get_random_sample, [],
+                                  [tf.float32, tf.float32])
 
         initial_shape = data_provider.random_shape(shape, reference_shape,
                                                    pca_model)
+        image.set_shape(image_shape)
+        shape.set_shape(lms_shape)
+        initial_shape.set_shape(lms_shape)
 
         images, lms, inits = tf.train.batch([image, shape, initial_shape],
                                             FLAGS.batch_size,
-                                            dynamic_pad=True,
+                                            dynamic_pad=False,
                                             capacity=5000,
+                                            enqueue_many=False,
                                             num_threads=num_preprocess_threads,
                                             name='batch')
         print('Defining model...')
@@ -179,7 +172,10 @@ def train(scope=''):
 
         # Build the summary operation from the last tower summaries.
         summary_op = tf.merge_summary(summaries)
-
+        # Start running operations on the Graph. allow_soft_placement must be
+        # set to True to build towers on GPU, as some of the ops do not have GPU
+        # implementations.
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
         # Build an initialization operation to run below.
         init = tf.initialize_all_variables()
         print('Initializing variables...')
