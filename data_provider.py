@@ -173,7 +173,11 @@ def load_images(paths, group=None, verbose=True):
 
     for i, im in enumerate(images):
         height, width = im.shape[:2]
-        padded_images[i, :height, :width] = im
+        dy = max(int((max_shape[1] - height - 1) / 2), 0)
+        dx = max(int((max_shape[2] - width - 1) / 2), 0)
+        lms = shapes[i]
+        lms = lms.from_vector(lms.points + np.array([dy, dx]))
+        padded_images[i, dy:(height+dy), dx:(width+dx)] = im
 
     return padded_images, shapes, reference_shape.points, pca_model
 

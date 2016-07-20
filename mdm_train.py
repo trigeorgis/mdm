@@ -79,7 +79,7 @@ def train(scope=''):
         image_shape = _images[0].shape
         lms_shape = _shapes[0].points.shape
 
-        def get_random_sample(rotation_stddev=15):
+        def get_random_sample(rotation_stddev=10):
             idx = np.random.randint(low=0, high=len(_images))
             im = menpo.image.Image(_images[idx].transpose(2, 0, 1))
             lms = _shapes[idx]
