@@ -8,6 +8,7 @@ import slim
 import tensorflow as tf
 import time
 import utils
+import menpo
 import menpo.io as mio
 
 FLAGS = tf.app.flags.FLAGS
