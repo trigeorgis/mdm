@@ -225,7 +225,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS'):
     return pixels.astype(np.float32).copy(), gt_truth, estimate
 
 
-def distort_color(image, thread_id=0, scope=None):
+def distort_color(image, thread_id=0, stddev=0.1, scope=None):
     """Distort the color of the image.
     Each color distortion is non-commutative and thus ordering of the color ops
     matters. Ideally we would randomly permute the ordering of the color ops.
@@ -252,6 +252,12 @@ def distort_color(image, thread_id=0, scope=None):
             image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
             image = tf.image.random_hue(image, max_delta=0.2)
 
+        image += tf.random_normal(
+                tf.shape(image),
+                stddev=stddev,
+                dtype=tf.float32,
+                seed=42,
+                name='add_gaussian_noise')
         # The random_* ops do not necessarily clamp.
         image = tf.clip_by_value(image, 0.0, 1.0)
         return image

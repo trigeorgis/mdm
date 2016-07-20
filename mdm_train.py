@@ -91,6 +91,8 @@ def train(scope=''):
         shape.set_shape(lms_shape)
         initial_shape.set_shape(lms_shape)
 
+        image = data_provider.distort_color(image)
+
         images, lms, inits = tf.train.batch([image, shape, initial_shape],
                                             FLAGS.batch_size,
                                             dynamic_pad=False,
