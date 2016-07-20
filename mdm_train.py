@@ -79,15 +79,16 @@ def train(scope=''):
         image_shape = _images[0].shape
         lms_shape = _shapes[0].points.shape
 
-        def get_random_sample():
+        def get_random_sample(rotation_stddev=15):
             idx = np.random.randint(low=0, high=len(_images))
             im = menpo.image.Image(_images[idx].transpose(2, 0, 1))
-            im.landmarks['PTS'] = _shapes[idx]
+            lms = _shapes[idx]
+            im.landmarks['PTS'] = lms
 
             if np.random.rand() < .5:
                 im = utils.mirror_image(im)
 
-            theta = np.random.normal(scale=15)
+            theta = np.random.normal(scale=rotation_stddev)
 
             rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
             im = im.warp_to_shape(im.shape, rot)
