@@ -28,6 +28,7 @@ tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """before beginning any training.""")
 tf.app.flags.DEFINE_integer('max_steps', 50000,
                             """Number of batches to run.""")
+tf.app.flags.DEFINE_string('train_device', '/gpu:0')
 tf.app.flags.DEFINE_string('datasets', ':'.join(
     ('databases/lfpw/trainset/*.png', 'databases/afw/*.jpg',
      'databases/helen/trainset/*.jpg')),
@@ -101,7 +102,7 @@ def train(scope=''):
                                             num_threads=num_preprocess_threads,
                                             name='batch')
         print('Defining model...')
-        with tf.device('/gpu:0'):
+        with tf.device(FLAGS.train_device):
             # Retain the summaries from the final tower.
             summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
             predictions, dxs, _ = mdm_model.model(images, inits)
