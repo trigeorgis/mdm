@@ -11,7 +11,7 @@ import utils
 import menpo.io as mio
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_float('initial_learning_rate', 0.0007,
+tf.app.flags.DEFINE_float('initial_learning_rate', 0.001,
                           """Initial learning rate.""")
 tf.app.flags.DEFINE_float('num_epochs_per_decay', 5.0,
                           """Epochs after which learning rate decays.""")
