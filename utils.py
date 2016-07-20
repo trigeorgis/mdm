@@ -27,7 +27,7 @@ mirrored_parts_68 = np.hstack([
 ])
 
 
-def mirror_image(im, group=None):
+def mirror_image(im, group='PTS'):
     im = im.copy()
     lms = im.landmarks[group].lms
     im = im.mirror()
