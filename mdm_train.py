@@ -73,13 +73,13 @@ def train(scope=''):
         reference_shape = tf.constant(_reference_shape,
                                       dtype=tf.float32,
                                       name='reference_shape')
-        print(_images.shape)
+
         image_shape = _images[0].shape
         lms_shape = _shapes[0].points.shape
 
         def get_random_sample():
             idx = np.random.randint(low=0, high=len(_images))
-            return _images[idx].astype(np.float32), _shapes[0].points.astype(
+            return _images[idx].astype(np.float32), _shapes[idx].points.astype(
                 np.float32)
 
         image, shape = tf.py_func(get_random_sample, [],

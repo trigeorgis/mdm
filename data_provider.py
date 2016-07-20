@@ -160,15 +160,20 @@ def load_images(paths, group=None, verbose=True):
             shapes.append(im.landmarks[group].lms)
             bbs.append(im.landmarks['bb'].lms)
 
+    mio.export_pickle(reference_shape.points, 'reference_shape.pkl', overwrite=True)
+    print('created reference_shape.pkl using the {} group'.format(group))
+
     pca_model = detect.create_generator(shapes, bbs)
 
     # Pad images to max length
     max_shape = np.max([im.shape for im in images], axis=0)
     max_shape = [len(images)] + list(max_shape)
     padded_images = np.random.rand(*max_shape).astype(np.float32)
+    print(padded_images.shape)
 
     for i, im in enumerate(images):
-        padded_images[map(slice, (i, ) + im.shape)] = im
+        height, width = im.shape[:2]
+        padded_images[i, :height, :width] = im
 
     return padded_images, shapes, reference_shape.points, pca_model
 
@@ -252,8 +257,7 @@ def distort_color(image, thread_id=0, scope=None):
         return image
 
 
-def batch_inputs(images,
-                 shapes,
+def batch_inputs(paths,
                  reference_shape,
                  batch_size=32,
                  is_training=False,
