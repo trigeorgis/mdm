@@ -28,7 +28,7 @@ tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """before beginning any training.""")
 tf.app.flags.DEFINE_integer('max_steps', 50000,
                             """Number of batches to run.""")
-tf.app.flags.DEFINE_string('train_device', '/gpu:0', 'Device to train with.')
+tf.app.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
 tf.app.flags.DEFINE_string('datasets', ':'.join(
     ('databases/lfpw/trainset/*.png', 'databases/afw/*.jpg',
      'databases/helen/trainset/*.jpg')),
@@ -80,8 +80,20 @@ def train(scope=''):
 
         def get_random_sample():
             idx = np.random.randint(low=0, high=len(_images))
-            return _images[idx].astype(np.float32), _shapes[idx].points.astype(
-                np.float32)
+            im = menpo.image.Image(_images[idx].transpose(2, 0, 1))
+            im.landmarks['PTS'] = _shapes[idx]
+
+            if np.random.rand() < .5:
+                im = utils.mirror_image(im)
+
+            theta = np.random.normal(scale=15)
+
+            rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
+            im = im.warp_to_shape(im.shape, rot)
+
+            pixels = im.pixels.transpose(1, 2, 0).astype('float32')
+            shape = im.landmarks['PTS'].lms.points.astype('float32')
+            return pixels, shape
 
         image, shape = tf.py_func(get_random_sample, [],
                                   [tf.float32, tf.float32])
