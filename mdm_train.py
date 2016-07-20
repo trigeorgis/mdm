@@ -84,14 +84,13 @@ def train(scope=''):
             im = menpo.image.Image(_images[idx].transpose(2, 0, 1))
             lms = _shapes[idx]
             im.landmarks['PTS'] = lms
-
             if np.random.rand() < .5:
                 im = utils.mirror_image(im)
 
-            theta = np.random.normal(scale=rotation_stddev)
-
-            rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
-            im = im.warp_to_shape(im.shape, rot)
+            if np.random.rand() < .5:
+              theta = np.random.normal(scale=rotation_stddev)
+              rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
+              im = im.warp_to_shape(im.shape, rot)
 
             pixels = im.pixels.transpose(1, 2, 0).astype('float32')
             shape = im.landmarks['PTS'].lms.points.astype('float32')
