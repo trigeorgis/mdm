@@ -160,15 +160,20 @@ def load_images(paths, group=None, verbose=True):
             shapes.append(im.landmarks[group].lms)
             bbs.append(im.landmarks['bb'].lms)
 
+    mio.export_pickle(reference_shape.points, 'reference_shape.pkl', overwrite=True)
+    print('created reference_shape.pkl using the {} group'.format(group))
+
     pca_model = detect.create_generator(shapes, bbs)
 
     # Pad images to max length
     max_shape = np.max([im.shape for im in images], axis=0)
     max_shape = [len(images)] + list(max_shape)
     padded_images = np.random.rand(*max_shape).astype(np.float32)
+    print(padded_images.shape)
 
     for i, im in enumerate(images):
-        padded_images[map(slice, (i, ) + im.shape)] = im
+        height, width = im.shape[:2]
+        padded_images[i, :height, :width] = im
 
     return padded_images, shapes, reference_shape.points, pca_model
 
@@ -220,7 +225,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS'):
     return pixels.astype(np.float32).copy(), gt_truth, estimate
 
 
-def distort_color(image, thread_id=0, scope=None):
+def distort_color(image, thread_id=0, stddev=0.1, scope=None):
     """Distort the color of the image.
     Each color distortion is non-commutative and thus ordering of the color ops
     matters. Ideally we would randomly permute the ordering of the color ops.
@@ -247,13 +252,18 @@ def distort_color(image, thread_id=0, scope=None):
             image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
             image = tf.image.random_hue(image, max_delta=0.2)
 
+        image += tf.random_normal(
+                tf.shape(image),
+                stddev=stddev,
+                dtype=tf.float32,
+                seed=42,
+                name='add_gaussian_noise')
         # The random_* ops do not necessarily clamp.
         image = tf.clip_by_value(image, 0.0, 1.0)
         return image
 
 
-def batch_inputs(images,
-                 shapes,
+def batch_inputs(paths,
                  reference_shape,
                  batch_size=32,
                  is_training=False,

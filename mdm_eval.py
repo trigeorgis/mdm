@@ -152,8 +152,10 @@ def evaluate(dataset_path):
   """Evaluate model on Dataset for a number of steps."""
   with tf.Graph().as_default(), tf.device('/cpu:0'):
     # Get images and labels from the dataset.
-    reference_shape = mio.import_pickle(
-            FLAGS.checkpoint_dir + '/reference_shape.pkl')
+    #reference_shape = mio.import_pickle(
+    #        FLAGS.checkpoint_dir + '/reference_shape.pkl')
+    reference_shape = mio.import_pickle('reference_shape.pkl')
+    print(reference_shape.shape)
     images, gt_truth, inits = data_provider.batch_inputs(
             [dataset_path], reference_shape,
             batch_size=FLAGS.batch_size, is_training=False)
