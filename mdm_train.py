@@ -81,7 +81,7 @@ def train(scope=''):
 
         def get_random_sample(rotation_stddev=10):
             idx = np.random.randint(low=0, high=len(_images))
-            im = menpo.image.Image(_images[idx].transpose(2, 0, 1))
+            im = menpo.image.Image(_images[idx].transpose(2, 0, 1), copy=False)
             lms = _shapes[idx]
             im.landmarks['PTS'] = lms
             if np.random.rand() < .5:
