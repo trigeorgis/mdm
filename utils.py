@@ -1,4 +1,5 @@
 import numpy as np
+from menpo.shape import PointCloud
 
 jaw_indices = np.arange(0, 17)
 lbrow_indices = np.arange(17, 22)
@@ -10,29 +11,37 @@ reye_indices = np.arange(42, 48)
 outer_mouth_indices = np.arange(48, 60)
 inner_mouth_indices = np.arange(60, 68)
 
-parts_68 = (
-jaw_indices, lbrow_indices, rbrow_indices, upper_nose_indices, lower_nose_indices, leye_indices, reye_indices,
-outer_mouth_indices, inner_mouth_indices)
+parts_68 = (jaw_indices, lbrow_indices, rbrow_indices, upper_nose_indices,
+            lower_nose_indices, leye_indices, reye_indices,
+            outer_mouth_indices, inner_mouth_indices)
 
 mirrored_parts_68 = np.hstack([
-    jaw_indices[::-1],
-    rbrow_indices[::-1],
-    lbrow_indices[::-1],
-    upper_nose_indices,
-    lower_nose_indices[::-1],
-    np.roll(reye_indices[::-1], 4),
-    np.roll(leye_indices[::-1], 4),
+    jaw_indices[::-1], rbrow_indices[::-1], lbrow_indices[::-1],
+    upper_nose_indices, lower_nose_indices[::-1],
+    np.roll(reye_indices[::-1], 4), np.roll(leye_indices[::-1], 4),
     np.roll(outer_mouth_indices[::-1], 7),
     np.roll(inner_mouth_indices[::-1], 5)
 ])
+
+
+def mirror_landmarks_68(lms, image_size):
+    return PointCloud(abs(np.array([0, image_size[1]]) - lms.as_vector(
+    ).reshape(-1, 2))[mirrored_parts_68])
 
 
 def mirror_image(im, group='PTS'):
     im = im.copy()
     lms = im.landmarks[group].lms
     im = im.mirror()
-    im.landmarks[group] = lms.from_vector(((
-        abs(np.array([0, im.shape[1]]) - lms.as_vector().reshape(-1, 2)))[mirrored_parts_68]))
+    im.landmarks[group] = mirror_landmarks_68(im.landmarks[group])
+    return im
+
+
+def mirror_image_bb(im):
+    im = im.copy()
+    im.pixels = im.pixels[..., ::-1]
+    im.landmarks['bounding_box'] = PointCloud(abs(np.array([0, im.shape[
+        1]]) - im.landmarks['bounding_box'].lms.points))
     return im
 
 
@@ -52,7 +61,7 @@ def line(image, x0, y0, x1, y1, color):
 
     for x in range(int(x0), int(x1) + 1):
         t = (x - x0) / float(x1 - x0)
-        y = y0 * (1 - t) + y1 * t;
+        y = y0 * (1 - t) + y1 * t
         if steep:
             image[x, int(y)] = color
         else:
@@ -83,14 +92,15 @@ def batch_draw_landmarks(imgs, lms):
 
 
 def get_central_crop(images, box=(6, 6)):
-  _, w, h, _ = images.get_shape().as_list()
+    _, w, h, _ = images.get_shape().as_list()
 
-  half_box = (box[0] / 2., box[1] / 2.)
+    half_box = (box[0] / 2., box[1] / 2.)
 
-  a = slice(int((w//2) - half_box[0]), int((w//2) + half_box[0]))
-  b = slice(int((h//2) - half_box[1]), int((h//2) + half_box[1]))
+    a = slice(int((w // 2) - half_box[0]), int((w // 2) + half_box[0]))
+    b = slice(int((h // 2) - half_box[1]), int((h // 2) + half_box[1]))
 
-  return images[:, a, b, :]
+    return images[:, a, b, :]
+
 
 def build_sampling_grid(patch_shape):
     patch_shape = np.array(patch_shape)
@@ -120,7 +130,8 @@ def extract_patches(pixels, centres, sampling_grid=default_sampling_grid):
     max_x = pixels.shape[-2] - 1
     max_y = pixels.shape[-1] - 1
 
-    patch_grid = (sampling_grid[None, :, :, :] + centres[:, None, None, :]).astype('int32')
+    patch_grid = (sampling_grid[None, :, :, :] + centres[:, None, None, :]
+                  ).astype('int32')
 
     X = patch_grid[:, :, :, 0].clip(0, max_x)
     Y = patch_grid[:, :, :, 1].clip(0, max_y)
