@@ -33,7 +33,7 @@ def mirror_image(im, group='PTS'):
     im = im.copy()
     lms = im.landmarks[group].lms
     im = im.mirror()
-    im.landmarks[group] = mirror_landmarks_68(im.landmarks[group])
+    im.landmarks[group] = mirror_landmarks_68(im.landmarks[group].lms, im.shape)
     return im
 
 
