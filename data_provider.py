@@ -213,8 +213,6 @@ def load_image(path, reference_shape, is_training=False, group='PTS'):
 
     im = im.crop_to_landmarks_proportion(0.3, group='bb')
     reference_shape = PointCloud(reference_shape)
-    if np.random.rand() < .5:
-        im = utils.mirror_image(im)
 
     bb = im.landmarks['bb'].lms.bounding_box()
 

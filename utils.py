@@ -29,11 +29,15 @@ def mirror_landmarks_68(lms, image_size):
     ).reshape(-1, 2))[mirrored_parts_68])
 
 
-def mirror_image(im, group='PTS'):
+def mirror_image(im):
     im = im.copy()
-    lms = im.landmarks[group].lms
-    im = im.mirror()
-    im.landmarks[group] = mirror_landmarks_68(im.landmarks[group].lms, im.shape)
+    im.pixels = im.pixels[..., ::-1]
+
+    for group in im.landmarks:
+        lms = im.landmarks[group].lms
+        if lms.points.shape[0] == 68:
+            im.landmarks[group] = mirror_landmarks_68(lms, im.shape)
+
     return im
 
 

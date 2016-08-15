@@ -57,7 +57,7 @@ def conv_model(inputs, is_training=True, scope=''):
   return net
 
 
-def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(24, 24), num_channels=3):
+def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(30, 30), num_channels=3):
   batch_size = images.get_shape().as_list()[0]
   hidden_state = tf.zeros((batch_size, 512))
   dx = tf.zeros((batch_size, num_patches, 2))
@@ -68,8 +68,8 @@ def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(24, 24),
       with tf.device('/cpu:0'):
           patches = tf.image.extract_patches(images, tf.constant(patch_shape), inits+dx)
       patches = tf.reshape(patches, (batch_size * num_patches, patch_shape[0], patch_shape[1], num_channels))
-
       endpoints['patches'] = patches
+
       with tf.variable_scope('convnet', reuse=step>0):
           net = conv_model(patches)
           ims = net['concat']
