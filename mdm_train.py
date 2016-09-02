@@ -16,9 +16,9 @@ tf.app.flags.DEFINE_float('initial_learning_rate', 0.001,
                           """Initial learning rate.""")
 tf.app.flags.DEFINE_float('num_epochs_per_decay', 5.0,
                           """Epochs after which learning rate decays.""")
-tf.app.flags.DEFINE_float('learning_rate_decay_factor', 0.97,
+tf.app.flags.DEFINE_float('learning_rate_decay_factor', 0.1,
                           """Learning rate decay factor.""")
-tf.app.flags.DEFINE_integer('batch_size', 40, """The batch size to use.""")
+tf.app.flags.DEFINE_integer('batch_size', 60, """The batch size to use.""")
 tf.app.flags.DEFINE_integer('num_preprocess_threads', 4,
                             """How many preprocess threads to use.""")
 tf.app.flags.DEFINE_string('train_dir', 'ckpt/train',
@@ -27,7 +27,7 @@ tf.app.flags.DEFINE_string('train_dir', 'ckpt/train',
 tf.app.flags.DEFINE_string('pretrained_model_checkpoint_path', '',
                            """If specified, restore this pretrained model """
                            """before beginning any training.""")
-tf.app.flags.DEFINE_integer('max_steps', 50000,
+tf.app.flags.DEFINE_integer('max_steps', 100000,
                             """Number of batches to run.""")
 tf.app.flags.DEFINE_string('train_device', '/gpu:0', """Device to train with.""")
 tf.app.flags.DEFINE_string('datasets', ':'.join(
@@ -35,13 +35,14 @@ tf.app.flags.DEFINE_string('datasets', ':'.join(
      'databases/helen/trainset/*.jpg')),
                            """Directory where to write event logs """
                            """and checkpoint.""")
+tf.app.flags.DEFINE_integer('patch_size', 30, 'The extracted patch size')
 # The decay to use for the moving average.
 MOVING_AVERAGE_DECAY = 0.9999
 
 
 def train(scope=''):
     """Train on dataset for a number of steps."""
-    with tf.Graph().as_default(), tf.device('/cpu:0'):
+    with tf.Graph().as_default(), tf.device('/gpu:0'):
         # Create a variable to count the number of train() calls. This equals the
         # number of batches processed * FLAGS.num_gpus.
         global_step = tf.get_variable('global_step', [],
@@ -51,9 +52,7 @@ def train(scope=''):
         train_dirs = FLAGS.datasets.split(':')
 
         # Calculate the learning rate schedule.
-        num_batches_per_epoch = 100
-        num_epochs_per_decay = 5
-        decay_steps = int(num_batches_per_epoch * num_epochs_per_decay)
+        decay_steps = 15000
 
         # Decay the learning rate exponentially based on the number of steps.
         lr = tf.train.exponential_decay(FLAGS.initial_learning_rate,
@@ -88,7 +87,7 @@ def train(scope=''):
             if np.random.rand() < .5:
                im = utils.mirror_image(im)
 
-            if np.random.rand() < .5:
+            if np.random.rand() < .5 and False:
               theta = np.random.normal(scale=rotation_stddev)
               rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
               im = im.warp_to_shape(im.shape, rot)
@@ -119,7 +118,7 @@ def train(scope=''):
         with tf.device(FLAGS.train_device):
             # Retain the summaries from the final tower.
             summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
-            predictions, dxs, _ = mdm_model.model(images, inits)
+            predictions, dxs, _ = mdm_model.model(images, inits, patch_shape=(FLAGS.patch_size, FLAGS.patch_size))
 
             total_loss = 0
 

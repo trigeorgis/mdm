@@ -8,19 +8,6 @@ import utils
 from slim import ops
 from slim import scopes
 
-def error_300w(images, dx, test_initial_shapes, threshold=0.05):
-    final_lms = [sh.from_vector(sh.as_vector() + d) for sh, d in zip(test_initial_shapes, dx.sum(1))]
-    true_lms = [im.landmarks['PTS'][None] for im in images]
-
-    error_per_image = []
-
-    for f, g in zip(final_lms,true_lms):
-        interocular_dist = np.linalg.norm(g.points[36] - g.points[45])
-        error_per_image.append(np.sum(np.linalg.norm(f.points - g.points, axis=-1)) / (f.points.shape[0] * interocular_dist))
-
-    norms = np.array(error_per_image)
-    return (norms < (threshold)).mean() * 100, np.mean(norms) * 100
-
 def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
@@ -57,7 +44,7 @@ def conv_model(inputs, is_training=True, scope=''):
   return net
 
 
-def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(30, 30), num_channels=3):
+def model(images, inits, num_iterations=4, num_patches=68, patch_shape=(26, 26), num_channels=3):
   batch_size = images.get_shape().as_list()[0]
   hidden_state = tf.zeros((batch_size, 512))
   dx = tf.zeros((batch_size, num_patches, 2))

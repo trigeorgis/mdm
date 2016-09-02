@@ -31,7 +31,7 @@ def mirror_landmarks_68(lms, image_size):
 
 def mirror_image(im):
     im = im.copy()
-    im.pixels = im.pixels[..., ::-1]
+    im.pixels = im.pixels[..., ::-1].copy()
 
     for group in im.landmarks:
         lms = im.landmarks[group].lms

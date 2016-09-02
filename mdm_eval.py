@@ -5,8 +5,11 @@ from __future__ import division
 from __future__ import print_function
 
 from datetime import datetime
+from pathlib import Path
+
 import data_provider
 import math
+import menpo
 import matplotlib
 import mdm_model
 import mdm_train
@@ -147,23 +150,43 @@ def _eval_once(saver, summary_writer, rmse_op, summary_op):
     coord.request_stop()
     coord.join(threads, stop_grace_period_secs=10)
 
+    
+def flip_predictions(predictions, shapes):
+    flipped_preds = []
+    
+    for pred, shape in zip(predictions, shapes):
+        pred = menpo.shape.PointCloud(pred)
+        pred = utils.mirror_landmarks_68(pred, shape)
+        flipped_preds.append(pred.points)
+
+    return np.array(flipped_preds, np.float32)
+
 
 def evaluate(dataset_path):
   """Evaluate model on Dataset for a number of steps."""
   with tf.Graph().as_default(), tf.device('/cpu:0'):
-    # Get images and labels from the dataset.
-    #reference_shape = mio.import_pickle(
-    #        FLAGS.checkpoint_dir + '/reference_shape.pkl')
-    reference_shape = mio.import_pickle('reference_shape.pkl')
-    print(reference_shape.shape)
-    images, gt_truth, inits = data_provider.batch_inputs(
+    train_dir = Path(FLAGS.checkpoint_dir)
+    reference_shape = mio.import_pickle(train_dir / 'reference_shape.pkl')
+    
+    images, gt_truth, inits, _ = data_provider.batch_inputs(
             [dataset_path], reference_shape,
             batch_size=FLAGS.batch_size, is_training=False)
+
+    mirrored_images, _, mirrored_inits, shapes = data_provider.batch_inputs(
+        [dataset_path], reference_shape,
+        batch_size=FLAGS.batch_size, is_training=False, mirror_image=True)
+
     print('Loading model...')
     # Build a Graph that computes the logits predictions from the
     # inference model.
     with tf.device(FLAGS.device):
-        pred, _, _ = mdm_model.model(images, inits)
+        patch_shape = (FLAGS.patch_size, FLAGS.patch_size)
+        pred, _, _ = mdm_model.model(images, inits, patch_shape=patch_shape)
+
+        tf.get_variable_scope().reuse_variables()
+
+        pred_mirrored, _, _ = mdm_model.model(
+            mirrored_images, mirrored_inits, patch_shape=patch_shape)
 
     pred_images, = tf.py_func(utils.batch_draw_landmarks,
             [images, pred], [tf.float32])
@@ -173,8 +196,12 @@ def evaluate(dataset_path):
     summaries = []
     summaries.append(tf.image_summary('images',
         tf.concat(2, [gt_images, pred_images]), max_images=5))
+    
+    avg_pred = pred + tf.py_func(flip_predictions, (pred_mirrored, shapes), (tf.float32, ))[0]
+    avg_pred /= 2.
+
     # Calculate predictions.
-    norm_error = mdm_model.normalized_rmse(pred, gt_truth)
+    norm_error = mdm_model.normalized_rmse(avg_pred, gt_truth)
 
     # Restore the moving average version of the learned variables for eval.
     variable_averages = tf.train.ExponentialMovingAverage(

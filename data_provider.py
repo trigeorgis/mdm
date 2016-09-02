@@ -15,6 +15,7 @@ import tensorflow as tf
 import detect
 import utils
 
+FLAGS = tf.app.flags.FLAGS
 
 def build_reference_shape(paths, diagonal=200):
     """Builds the reference shape.
@@ -160,7 +161,8 @@ def load_images(paths, group=None, verbose=True):
             shapes.append(im.landmarks[group].lms)
             bbs.append(im.landmarks['bb'].lms)
 
-    mio.export_pickle(reference_shape.points, 'reference_shape.pkl', overwrite=True)
+    train_dir = Path(FLAGS.train_dir)
+    mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
     print('created reference_shape.pkl using the {} group'.format(group))
 
     pca_model = detect.create_generator(shapes, bbs)
@@ -186,7 +188,8 @@ def load_images(paths, group=None, verbose=True):
     return padded_images, shapes, reference_shape.points, pca_model
 
 
-def load_image(path, reference_shape, is_training=False, group='PTS'):
+def load_image(path, reference_shape, is_training=False, group='PTS',
+               mirror_image=False):
     """Load an annotated image.
 
     In the directory of the provided image file, there
@@ -198,6 +201,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS'):
       reference_shape: a numpy array [num_landmarks, 2]
       is_training: whether in training mode or not.
       group: landmark group containing the grounth truth landmarks.
+      mirror_image: flips horizontally the image's pixels and landmarks.
     Returns:
       pixels: a numpy array [width, height, 3].
       estimate: an initial estimate a numpy array [68, 2].
@@ -219,6 +223,9 @@ def load_image(path, reference_shape, is_training=False, group='PTS'):
     im.landmarks['__initial'] = align_shape_with_bounding_box(reference_shape,
                                                               bb)
     im = im.rescale_to_pointcloud(reference_shape, group='__initial')
+
+    if mirror_image:
+        im = utils.mirror_image(im)
 
     lms = im.landmarks[group].lms
     initial = im.landmarks['__initial'].lms
@@ -273,7 +280,8 @@ def batch_inputs(paths,
                  reference_shape,
                  batch_size=32,
                  is_training=False,
-                 num_landmarks=68):
+                 num_landmarks=68,
+                 mirror_image=False):
     """Reads the files off the disk and produces batches.
 
     Args:
@@ -283,21 +291,26 @@ def batch_inputs(paths,
       batch_size: the batch size.
       is_traininig: whether in training mode.
       num_landmarks: the number of landmarks in the training images.
+      mirror_image: mirrors the image and landmarks horizontally.
     Returns:
       images: a tf tensor of shape [batch_size, width, height, 3].
       lms: a tf tensor of shape [batch_size, 68, 2].
       lms_init: a tf tensor of shape [batch_size, 68, 2].
     """
 
-    files = tf.concat(0, [tf.matching_files(d) for d in paths])
+    files = tf.concat(0, [map(str, sorted(Path(d).parent.glob(Path(d).name)))
+                          for d in paths])
 
     filename_queue = tf.train.string_input_producer(files,
                                                     shuffle=is_training,
                                                     capacity=1000)
 
+    filename = filename_queue.dequeue()
+
     image, lms, lms_init = tf.py_func(
-        partial(load_image, is_training=is_training),
-        [filename_queue.dequeue(), reference_shape], # input arguments
+        partial(load_image, is_training=is_training,
+                mirror_image=mirror_image),
+        [filename, reference_shape], # input arguments
         [tf.float32, tf.float32, tf.float32], # output types
         name='load_image'
     )
@@ -311,11 +324,12 @@ def batch_inputs(paths,
     lms = tf.reshape(lms, [num_landmarks, 2])
     lms_init = tf.reshape(lms_init, [num_landmarks, 2])
 
-    images, lms, inits = tf.train.batch([image, lms, lms_init],
-                                        batch_size=batch_size,
-                                        num_threads=4,
-                                        capacity=1000,
-                                        enqueue_many=False,
-                                        dynamic_pad=True)
+    images, lms, inits, shapes = tf.train.batch(
+                                    [image, lms, lms_init, tf.shape(image)],
+                                    batch_size=batch_size,
+                                    num_threads=4 if is_training else 1,
+                                    capacity=1000,
+                                    enqueue_many=False,
+                                    dynamic_pad=True)
 
-    return images, lms, inits
+    return images, lms, inits, shapes
