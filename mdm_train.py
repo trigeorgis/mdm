@@ -87,7 +87,7 @@ def train(scope=''):
             if np.random.rand() < .5:
                im = utils.mirror_image(im)
 
-            if np.random.rand() < .5 and False:
+            if np.random.rand() < .5:
               theta = np.random.normal(scale=rotation_stddev)
               rot = menpo.transform.rotate_ccw_about_centre(lms, theta)
               im = im.warp_to_shape(im.shape, rot)
@@ -97,7 +97,7 @@ def train(scope=''):
             return pixels, shape
 
         image, shape = tf.py_func(get_random_sample, [],
-                                  [tf.float32, tf.float32])
+                                  [tf.float32, tf.float32], stateful=True)
 
         initial_shape = data_provider.random_shape(shape, reference_shape,
                                                    pca_model)

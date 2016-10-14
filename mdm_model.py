@@ -18,14 +18,9 @@ def align_reference_shape(reference_shape, reference_shape_bb, im, bb):
     return tf.image.resize_bilinear(tf.expand_dims(im, 0), new_size)[0, :, :, :], align_mean_shape / ratio, ratio
 
 def normalized_rmse(pred, gt_truth):
-    pred_shape = pred.get_shape().as_list()
-    gt_truth_shape = gt_truth.get_shape().as_list()
-    num_lm = gt_truth_shape[1]
-    assert pred_shape == gt_truth_shape, "Conflicting predicted and ground truth shapes"
-
     norm = tf.sqrt(tf.reduce_sum(((gt_truth[:, 36, :] - gt_truth[:, 45, :])**2), 1))
 
-    return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * num_lm)
+    return tf.reduce_sum(tf.sqrt(tf.reduce_sum(tf.square(pred - gt_truth), 2)), 1) / (norm * 68)
 
 
 def conv_model(inputs, is_training=True, scope=''):
