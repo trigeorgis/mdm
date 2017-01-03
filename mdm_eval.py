@@ -18,7 +18,7 @@ import os.path
 import tensorflow as tf
 import time
 import utils
-import slim
+import losses
 import menpo.io as mio
 
 # Do not use a gui toolkit for matlotlib.
@@ -28,7 +28,7 @@ FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('eval_dir', 'ckpt/eval',
                            """Directory where to write event logs.""")
-tf.app.flags.DEFINE_string('checkpoint_dir', 'ckpt/train/',
+tf.app.flags.DEFINE_string('checkpoint_dir', './ckpt/train/',
                            """Directory where to read model checkpoints.""")
 
 # Flags governing the frequency of the eval.
@@ -37,11 +37,12 @@ tf.app.flags.DEFINE_integer('eval_interval_secs', 60 * 5,
 
 tf.app.flags.DEFINE_boolean('run_once', False,
                             """Whether to run eval only once.""")
-
+tf.app.flags.DEFINE_boolean('mirror_images', False,
+                            """Whether to flip the images or not.""")
 # Flags governing the data used for the eval.
-tf.app.flags.DEFINE_integer('num_examples', 224,
+tf.app.flags.DEFINE_integer('num_examples', 600,
                             """Number of examples to run.""")
-tf.app.flags.DEFINE_string('dataset_path', 'lfpw/testset/*.png',
+tf.app.flags.DEFINE_string('dataset_path', '/vol/atlas/databases/300w_cropped/*.png',
                            """The dataset path to evaluate.""")
 tf.app.flags.DEFINE_string('device', '/cpu:0', 'the device to eval on.')
 
@@ -77,13 +78,7 @@ def _eval_once(saver, summary_writer, rmse_op, summary_op):
   with tf.Session() as sess:
     ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
-      if os.path.isabs(ckpt.model_checkpoint_path):
-        # Restores from checkpoint with absolute path.
-        saver.restore(sess, ckpt.model_checkpoint_path)
-      else:
-        # Restores from checkpoint with relative path.
-        saver.restore(sess, os.path.join(FLAGS.checkpoint_dir,
-                                         ckpt.model_checkpoint_path))
+      saver.restore(sess, ckpt.model_checkpoint_path)
 
       # Assuming model_checkpoint_path looks something like:
       #   /my-favorite-path/imagenet_train/model.ckpt-0,
@@ -166,14 +161,13 @@ def evaluate(dataset_path):
   """Evaluate model on Dataset for a number of steps."""
   with tf.Graph().as_default(), tf.device('/cpu:0'):
     train_dir = Path(FLAGS.checkpoint_dir)
-    reference_shape = mio.import_pickle(train_dir / 'reference_shape.pkl')
     
-    images, gt_truth, inits, _ = data_provider.batch_inputs(
-            [dataset_path], reference_shape,
+    images, gt_truth, inits, _ = data_provider.read_images(
+            [dataset_path],
             batch_size=FLAGS.batch_size, is_training=False)
 
-    mirrored_images, _, mirrored_inits, shapes = data_provider.batch_inputs(
-        [dataset_path], reference_shape,
+    mirrored_images, _, mirrored_inits, shapes = data_provider.read_images(
+        [dataset_path], 
         batch_size=FLAGS.batch_size, is_training=False, mirror_image=True)
 
     print('Loading model...')
@@ -181,12 +175,14 @@ def evaluate(dataset_path):
     # inference model.
     with tf.device(FLAGS.device):
         patch_shape = (FLAGS.patch_size, FLAGS.patch_size)
-        pred, _, _ = mdm_model.model(images, inits, patch_shape=patch_shape)
+        preds = mdm_model.model(images, inits, patch_shape=patch_shape)
+        pred = preds[-1]
 
         tf.get_variable_scope().reuse_variables()
 
-        pred_mirrored, _, _ = mdm_model.model(
-            mirrored_images, mirrored_inits, patch_shape=patch_shape)
+        preds_mirrored = mdm_model.model(
+           mirrored_images, mirrored_inits, patch_shape=patch_shape)
+        pred_mirrored = preds_mirrored[-1]
 
     pred_images, = tf.py_func(utils.batch_draw_landmarks,
             [images, pred], [tf.float32])
@@ -197,17 +193,20 @@ def evaluate(dataset_path):
     summaries.append(tf.image_summary('images',
         tf.concat(2, [gt_images, pred_images]), max_images=5))
     
-    avg_pred = pred + tf.py_func(flip_predictions, (pred_mirrored, shapes), (tf.float32, ))[0]
-    avg_pred /= 2.
+    avg_pred = pred
+    
+    if FLAGS.mirror_images:
+        avg_pred += tf.py_func(flip_predictions, (pred_mirrored, shapes), (tf.float32, ))[0]
+        avg_pred /= 2.
 
     # Calculate predictions.
-    norm_error = mdm_model.normalized_rmse(avg_pred, gt_truth)
+    norm_error = losses.normalized_rmse(avg_pred, gt_truth)
 
     # Restore the moving average version of the learned variables for eval.
     variable_averages = tf.train.ExponentialMovingAverage(
         mdm_train.MOVING_AVERAGE_DECAY)
     variables_to_restore = variable_averages.variables_to_restore()
-    saver = tf.train.Saver(variables_to_restore)
+    saver = tf.train.Saver() # TODO: variables_to_restore
 
     # Build the summary operation based on the TF collection of Summaries.
     summary_op = tf.merge_summary(summaries)

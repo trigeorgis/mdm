@@ -12,8 +12,10 @@ import menpo.image
 import menpo.io as mio
 import numpy as np
 import tensorflow as tf
-import detect
+# import detect
 import utils
+
+slim = tf.contrib.slim
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -38,40 +40,47 @@ def build_reference_shape(paths, diagonal=200):
     return compute_reference_shape(landmarks,
                                    diagonal=diagonal).points.astype(np.float32)
 
+def get_bounding_box(shape):
+    min_xy = tf.reduce_min(shape, 0)
+    max_xy = tf.reduce_max(shape, 0)
 
-def grey_to_rgb(im):
-    """Converts menpo Image to rgb if greyscale
-
-    Args:
-      im: menpo Image with 1 or 3 channels.
-    Returns:
-      Converted menpo `Image'.
-    """
-    assert im.n_channels in [1, 3]
-
-    if im.n_channels == 3:
-        return im
-
-    im.pixels = np.vstack([im.pixels] * 3)
-    return im
-
-
-def align_reference_shape(reference_shape, bb):
-    min_xy = tf.reduce_min(reference_shape, 0)
-    max_xy = tf.reduce_max(reference_shape, 0)
     min_x, min_y = min_xy[0], min_xy[1]
     max_x, max_y = max_xy[0], max_xy[1]
 
-    reference_shape_bb = tf.pack([[min_x, min_y], [max_x, min_y],
-                                  [max_x, max_y], [min_x, max_y]])
+    return tf.pack([[min_x, min_y], [max_x, min_y],
+                    [max_x, max_y], [min_x, max_y]])
+
+def align_reference_shape_w_image(reference_shape, bounding_box, im):
+    reference_shape_bb = get_bounding_box(reference_shape)
+    
+    def norm(x):
+        return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
+
+    ratio = norm(bounding_box) / norm(reference_shape_bb)
+    align_mean_shape = (reference_shape - tf.reduce_mean(reference_shape_bb, 0)) * ratio + tf.reduce_mean(bounding_box, 0)
+    new_size = tf.to_int32(tf.to_float(tf.shape(im)[:2]) / ratio)
+    return tf.image.resize_images(im, new_size), align_mean_shape / ratio, ratio
+
+def align_reference_shape(reference_shape, bounding_box):
+    '''Aligns the reference shape to a bounding box.
+    
+    Args:
+      reference_shape: A `Tensor` of dimensions [num_landmarks, 2].
+      bounding_box: A `Tensor` of dimensions [4, 2].
+    Returns:
+      the similarity aligned shape to the bounding box.
+    '''
+
+    reference_shape_bb = get_bounding_box(reference_shape)
 
     def norm(x):
         return tf.sqrt(tf.reduce_sum(tf.square(x - tf.reduce_mean(x, 0))))
 
-    ratio = norm(bb) / norm(reference_shape_bb)
+    ratio = norm(bounding_box) / norm(reference_shape_bb)
+
     return tf.add(
         (reference_shape - tf.reduce_mean(reference_shape_bb, 0)) * ratio,
-        tf.reduce_mean(bb, 0),
+        tf.reduce_mean(bounding_box, 0),
         name='initial_shape')
 
 
@@ -97,105 +106,65 @@ def random_shape(gts, reference_shape, pca_model):
     return shape
 
 
-def get_noisy_init_from_bb(reference_shape, bb, noise_percentage=.02):
-    """Roughly aligns a reference shape to a bounding box.
 
-    This adds some uniform noise for translation and scale to the
-    aligned shape.
-
+def distort_color(image, thread_id=0, stddev=0.05, scope=None):
+    """Distort the color of the image.
+    Each color distortion is non-commutative and thus ordering of the color ops
+    matters. Ideally we would randomly permute the ordering of the color ops.
+    Rather then adding that level of complication, we select a distinct ordering
+    of color ops for each preprocessing thread.
     Args:
-      reference_shape: a numpy array [num_landmarks, 2]
-      bb: bounding box, a numpy array [4, ]
-      noise_percentage: noise presentation to add.
+      image: Tensor containing single image.
+      thread_id: preprocessing thread ID.
+      scope: Optional scope for op_scope.
     Returns:
-      The aligned shape, as a numpy array [num_landmarks, 2]
+      color-distorted image
     """
-    bb = PointCloud(bb)
-    reference_shape = PointCloud(reference_shape)
+    with tf.op_scope([image], scope, 'distort_color'):
+        color_ordering = thread_id % 2
 
-    bb = noisy_shape_from_bounding_box(
-        reference_shape,
-        bb,
-        noise_percentage=[noise_percentage, 0, noise_percentage]).bounding_box(
-        )
+        if color_ordering == 0:
+            image = tf.image.random_brightness(image, max_delta=32. / 255.)
+            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+            image = tf.image.random_hue(image, max_delta=0.2)
+            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+        elif color_ordering == 1:
+            image = tf.image.random_brightness(image, max_delta=32. / 255.)
+            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+            image = tf.image.random_hue(image, max_delta=0.2)
+        
+        image += tf.random_normal(
+                tf.shape(image),
+                stddev=stddev,
+                dtype=tf.float32,
+                seed=42,
+                name='add_gaussian_noise')
+        # The random_* ops do not necessarily clamp.
+        image = tf.clip_by_value(image, 0.0, 1.0)
+        return image
 
-    return align_shape_with_bounding_box(reference_shape, bb).points
-
-
-def load_images(paths, group=None, verbose=True):
-    """Loads and rescales input images to the diagonal of the reference shape.
-
+def grey_to_rgb(im):
+    """Converts menpo Image to rgb if greyscale
     Args:
-      paths: a list of strings containing the data directories.
-      reference_shape: a numpy array [num_landmarks, 2]
-      group: landmark group containing the grounth truth landmarks.
-      verbose: boolean, print debugging info.
+      im: menpo Image with 1 or 3 channels.
     Returns:
-      images: a list of numpy arrays containing images.
-      shapes: a list of the ground truth landmarks.
-      reference_shape: a numpy array [num_landmarks, 2].
-      shape_gen: PCAModel, a shape generator.
+      Converted menpo `Image'.
     """
-    images = []
-    shapes = []
-    bbs = []
+    assert im.n_channels in [1, 3]
 
-    reference_shape = PointCloud(build_reference_shape(paths))
+    if im.n_channels == 3:
+        return im
 
-    for path in paths:
-        if verbose:
-            print('Importing data from {}'.format(path))
-
-        for im in mio.import_images(path, verbose=verbose, as_generator=True):
-            group = group or im.landmarks[group]._group_label
-
-            bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
-            if 'set' not in str(bb_root):
-                bb_root = im.path.parent.relative_to(im.path.parent.parent)
-            im.landmarks['bb'] = mio.import_landmark_file(str(Path(
-                'bbs') / bb_root / (im.path.stem + '.pts')))
-            im = im.crop_to_landmarks_proportion(0.3, group='bb')
-            im = im.rescale_to_pointcloud(reference_shape, group=group)
-            im = grey_to_rgb(im)
-            images.append(im.pixels.transpose(1, 2, 0))
-            shapes.append(im.landmarks[group].lms)
-            bbs.append(im.landmarks['bb'].lms)
-
-    train_dir = Path(FLAGS.train_dir)
-    mio.export_pickle(reference_shape.points, train_dir / 'reference_shape.pkl', overwrite=True)
-    print('created reference_shape.pkl using the {} group'.format(group))
-
-    pca_model = detect.create_generator(shapes, bbs)
-
-    # Pad images to max length
-    max_shape = np.max([im.shape for im in images], axis=0)
-    max_shape = [len(images)] + list(max_shape)
-    padded_images = np.random.rand(*max_shape).astype(np.float32)
-    print(padded_images.shape)
-
-    for i, im in enumerate(images):
-        height, width = im.shape[:2]
-        dy = max(int((max_shape[1] - height - 1) / 2), 0)
-        dx = max(int((max_shape[2] - width - 1) / 2), 0)
-        lms = shapes[i]
-        pts = lms.points
-        pts[:, 0] += dy
-        pts[:, 1] += dx
-
-        lms = lms.from_vector(pts)
-        padded_images[i, dy:(height+dy), dx:(width+dx)] = im
-
-    return padded_images, shapes, reference_shape.points, pca_model
-
+    im.pixels = np.vstack([im.pixels] * 3)
+    return im
 
 def load_image(path, reference_shape, is_training=False, group='PTS',
                mirror_image=False):
     """Load an annotated image.
-
     In the directory of the provided image file, there
     should exist a landmark file (.pts) with the same
     basename as the image file.
-
     Args:
       path: a path containing an image file.
       reference_shape: a numpy array [num_landmarks, 2]
@@ -207,7 +176,7 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
       estimate: an initial estimate a numpy array [68, 2].
       gt_truth: the ground truth landmarks, a numpy array [68, 2].
     """
-    im = mio.import_image(path)
+    im = mio.import_image(path.decode("utf-8"))
     bb_root = im.path.parent.relative_to(im.path.parent.parent.parent)
     if 'set' not in str(bb_root):
         bb_root = im.path.parent.relative_to(im.path.parent.parent)
@@ -234,56 +203,15 @@ def load_image(path, reference_shape, is_training=False, group='PTS',
     pixels = grey_to_rgb(im).pixels.transpose(1, 2, 0)
 
     gt_truth = lms.points.astype(np.float32)
-    estimate = initial.points.astype(np.float32)
-    return pixels.astype(np.float32).copy(), gt_truth, estimate
+    init_shape = initial.points.astype(np.float32)
+    return pixels.astype(np.float32).copy(), gt_truth, init_shape
 
-
-def distort_color(image, thread_id=0, stddev=0.1, scope=None):
-    """Distort the color of the image.
-    Each color distortion is non-commutative and thus ordering of the color ops
-    matters. Ideally we would randomly permute the ordering of the color ops.
-    Rather then adding that level of complication, we select a distinct ordering
-    of color ops for each preprocessing thread.
-    Args:
-      image: Tensor containing single image.
-      thread_id: preprocessing thread ID.
-      scope: Optional scope for op_scope.
-    Returns:
-      color-distorted image
-    """
-    with tf.op_scope([image], scope, 'distort_color'):
-        color_ordering = thread_id % 2
-
-        if color_ordering == 0:
-            image = tf.image.random_brightness(image, max_delta=32. / 255.)
-            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-            image = tf.image.random_hue(image, max_delta=0.2)
-            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        elif color_ordering == 1:
-            image = tf.image.random_brightness(image, max_delta=32. / 255.)
-            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-            image = tf.image.random_hue(image, max_delta=0.2)
-
-        image += tf.random_normal(
-                tf.shape(image),
-                stddev=stddev,
-                dtype=tf.float32,
-                seed=42,
-                name='add_gaussian_noise')
-        # The random_* ops do not necessarily clamp.
-        image = tf.clip_by_value(image, 0.0, 1.0)
-        return image
-
-
-def batch_inputs(paths,
-                 reference_shape,
+def read_images(paths,
                  batch_size=32,
                  is_training=False,
                  num_landmarks=68,
                  mirror_image=False):
     """Reads the files off the disk and produces batches.
-
     Args:
       paths: a list of directories that contain training images and
         the corresponding landmark files.
@@ -298,7 +226,8 @@ def batch_inputs(paths,
       lms_init: a tf tensor of shape [batch_size, 68, 2].
     """
 
-    files = tf.concat(0, [map(str, sorted(Path(d).parent.glob(Path(d).name)))
+    reference_shape = tf.constant(mio.import_pickle('reference_shape.pkl', encoding='latin1'))
+    files = tf.concat(0, [list(map(str, sorted(Path(d).parent.glob(Path(d).name))))
                           for d in paths])
 
     filename_queue = tf.train.string_input_producer(files,
@@ -333,3 +262,85 @@ def batch_inputs(paths,
                                     dynamic_pad=True)
 
     return images, lms, inits, shapes
+
+def batch_inputs(paths,
+                 batch_size=32,
+                 is_training=False,
+                 num_channels=3):
+    """Reads the files off the disk and produces batches.
+
+    Args:
+      paths: a list of directories that contain training images and
+        the corresponding landmark files.
+      reference_shape: a numpy array [num_landmarks, 2]
+      batch_size: the batch size.
+      is_traininig: whether in training mode.
+    Returns:
+      images: a tf tensor of shape [batch_size, width, height, 3].
+      lms: a tf tensor of shape [batch_size, 68, 2].
+      lms_init: a tf tensor of shape [batch_size, 68, 2].
+    """
+
+    reference_shape = tf.constant(mio.import_pickle('reference_shape.pkl', encoding='latin1') * .8)
+
+    files = tf.concat(0, [list(map(str, sorted(Path(d).parent.glob(Path(d).name))))
+                          for d in paths])
+
+    filename_queue = tf.train.string_input_producer(files,
+                                                    shuffle=is_training,
+                                                    capacity=1000)
+
+    reader = tf.TFRecordReader()
+
+    _, serialized_example = reader.read(filename_queue)
+
+    if is_training:
+        serialized_example = tf.train.shuffle_batch(
+            [serialized_example], 1, 2000, 200, 4)
+        serialized_example = serialized_example[0]
+    
+    features = tf.parse_single_example(
+        serialized_example,
+        features={
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'num_landmarks': tf.FixedLenFeature([], tf.int64),
+            'landmarks': tf.FixedLenFeature([], tf.string),
+            'image': tf.FixedLenFeature([], tf.string),
+            'name': tf.FixedLenFeature([], tf.string),
+        }
+    )
+    num_landmarks = features['num_landmarks']
+    num_landmarks = 68
+    image = tf.image.decode_jpeg(features['image'], channels=num_channels)
+
+    gt_shape = tf.to_float(tf.decode_raw(features['landmarks'], tf.float64))
+    gt_shape = tf.reshape(gt_shape, [num_landmarks, 2])
+
+    height = features['height']
+    width = features['width']
+    bounding_box = get_bounding_box(gt_shape)
+
+    # Set the number of channels.
+    image.set_shape([None, None, num_channels])
+    
+    image = tf.to_float(image)
+    image /= 255.
+    
+    if is_training:
+        image = distort_color(image)
+        bounding_box = bounding_box * tf.random_normal((1,), 1, .01) + tf.random_normal((2,), 1, 5)
+    
+    image, init_shape, ratio = align_reference_shape_w_image(reference_shape, bounding_box, image)
+    init_shape = tf.reshape(init_shape, [num_landmarks, 2])
+    gt_shape /= ratio
+
+    images, lms, inits = tf.train.batch(
+                                    [image, gt_shape, init_shape],
+                                    batch_size=batch_size,
+                                    num_threads=2 if is_training else 1,
+                                    capacity=1000,
+                                    enqueue_many=False,
+                                    dynamic_pad=True)
+
+    return images, lms, inits
