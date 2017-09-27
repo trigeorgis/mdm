@@ -27,7 +27,7 @@ Follow the installation instructions of Tensorflow at and install it inside the 
 
 but use 
 
-    git clone git@github.com:trigeorgis/tensorflow.git
+    git clone https://github.com/trigeorgis/tensorflow.git
 
 as the TensorFlow repo. This is a fork of Tensorflow (#ff75787c) but it includes some
 extra C++ ops, such as for the extraction of patches around the landmarks.
@@ -40,6 +40,7 @@ A pretrained model on 300W train set can be found at: https://www.doc.ic.ac.uk/~
 Currently the TensorFlow implementation does not contain the same data augmnetation steps
 as we did in the paper, but this will be updated shortly.
 
+```
     # Activate the conda environment where tf/menpo resides.
     source activate menpo
     
@@ -55,5 +56,4 @@ as we did in the paper, but this will be updated shortly.
     
     # Run tensorboard to visualise the results
     tensorboard --logdir==$PWD/ckpt
-    
-    
+```
