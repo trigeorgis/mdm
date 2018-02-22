@@ -34,6 +34,9 @@ extra C++ ops, such as for the extraction of patches around the landmarks.
 
 # Pretrained models
 
+Disclaimer:
+The pretrained models can only be used for non-commercial academic purposes.
+
 A pretrained model on 300W train set can be found at: https://www.doc.ic.ac.uk/~gt108/theano_mdm.pb
 
 # Training a model
@@ -57,3 +60,5 @@ as we did in the paper, but this will be updated shortly.
     # Run tensorboard to visualise the results
     tensorboard --logdir==$PWD/ckpt
 ```
+
+
