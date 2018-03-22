@@ -1,6 +1,6 @@
 # MDM
 
-A Tensorflow implementation of the Mnemonic Descent Method.
+A TensorFlow implementation of the Mnemonic Descent Method.
 
     Mnemonic Descent Method: A recurrent process applied for end-to-end face alignment
     G. Trigeorgis, P. Snape, M. A. Nicolaou, E. Antonakos, S. Zafeiriou.
@@ -43,6 +43,7 @@ The pretrained models can only be used for non-commercial academic purposes.
 Currently the TensorFlow implementation does not contain the same data augmnetation steps
 as we did in the paper, but this will be updated shortly.
 
+```
     # Activate the conda environment where tf/menpo resides.
     source activate menpo
     
@@ -58,5 +59,4 @@ as we did in the paper, but this will be updated shortly.
     
     # Run tensorboard to visualise the results
     tensorboard --logdir==$PWD/ckpt
-    
-    
+```
